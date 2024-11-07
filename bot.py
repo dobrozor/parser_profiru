@@ -109,7 +109,7 @@ try:
                     keyboard.add(callback_button)
 
                     # Отправляем сообщение с кнопкой
-                    bot.send_message(chat_id, message_text, message_thread_id=1, reply_markup=keyboard, parse_mode='Markdown')
+                    bot.send_message(chat_id, message_text, reply_markup=keyboard, parse_mode='Markdown')
                     print(f'Отправил в тг в {current_time}')#выводим в консоль (сделал для собственного удобства)
 
 
