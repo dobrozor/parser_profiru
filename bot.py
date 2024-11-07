@@ -10,8 +10,8 @@ import cfg
 current_time = datetime.datetime.now().time()#нужен только чтоб отправлять в консоль время отправления данных в телеграм
 
 # Settings
-myLogin = cfg.myLogin
-myPassword = cfg.myPassword
+myLogin = '' #Логин от вашего аккаунта profi.ru (используем только логин, так как авторизация через телефон проходит иначе)
+myPassword = '' #Пароль от вашего аккаунта profi.ru
 main_key = cfg.main_key
 time_key = cfg.time_key
 
