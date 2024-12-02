@@ -1,20 +1,39 @@
+import bs4
+import selenium
 from bs4 import BeautifulSoup as bs
 import time
 from selenium import webdriver
 import telebot
 from telebot import types
 
-# Settings
-myLogin = ''  # логин (телефон не катит)
-myPassword = ''  # пароль от профи.ру
 
-token = '' #токен бота
-chat_id = '' #сюда айди группы с ботом (создаёте беседу, в неё добавляете бота и вот йади беседы нужен, он всегда начинается с -100)
+# Функция для загрузки настроек из файла
+def load_settings(file_path):
+    settings = {}
+    with open(file_path, 'r', encoding='utf-8') as f:  # Использование кодировки UTF-8
+        for line in f:
+            line = line.strip()
+            if not line:  # Пропускаем пустые строки
+                continue
+            key, value = line.split(': ', 1)  # Разбиение на ключ и значение
+            # Обрабатываем параметры, разделенные запятыми
+            if key in ['time_key', 'bad_words']:
+                settings[key] = set(value.split(','))
+            else:
+                settings[key] = value
+    return settings
 
-timer = '60' #Время в секундах, через сколько обновлять страницу. Советую не ставить меньше 60 секунд, может выкинуть с сайта
+# Загружаем настройки
+settings = load_settings('settings.txt')
 
-time_key = {'часов', 'час', 'Вчера', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентрября', 'ноября', 'октября', 'декабря'}# Простейшее ограничение по времени
-bad_words = {'Опрос', '3D', 'копирайтер', 'копирайт', 'моушн', 'видео', 'анимация', '3d', 'Опросы'}
+# Присваиваем значения переменным
+myLogin = settings['login']
+myPassword = settings['password']
+token = settings['token']
+chat_id = settings['chat_id']
+time_key = settings['time_key'] 
+bad_words = settings['bad_words']
+
 
 #=========== ОСТАЛЬНОЕ ЛУЧШЕ НЕ МЕНЯТЬ ЕСЛИ НЕ ШАРИШ В ПИТОНЕ ============
 url = 'https://profi.ru/backoffice/n.php'
@@ -110,4 +129,4 @@ while True:
                     f"Данные не прошли проверку: '{subject}'")
 
     print("Ожидание перед следующим обновлением...")
-    time.sleep(timer)
+    time.sleep(120)
