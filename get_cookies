@@ -1,0 +1,41 @@
+import os
+import time
+import pickle
+import psutil
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+# Путь к папке с вашим профилем Chrome
+profile_directory = r'YOU_DIRICTORY' #в строке ссылкой хром введите без ковычек "chrome://version/" и вставьте сюда строчку из "Путь к профилю" кроме последней папки
+profile_name = r'Profile 3' #а сюда вставьте последнюю папку из "Путь к профилю"
+
+# Проверка на наличие активных процессов Chrome
+def is_chrome_running():
+    return "chrome.exe" in (p.name() for p in psutil.process_iter())
+
+# Закрытие всех процессов Chrome
+if is_chrome_running():
+    print("Закройте все экземпляры Chrome перед запуском скрипта.")
+    time.sleep(5)
+    os.system("taskkill /f /im chrome.exe")
+
+# Создание объекта ChromeOptions
+options = Options()
+options.add_argument(f'--user-data-dir={profile_directory}')
+options.add_argument(f'--profile-directory={profile_name}')
+
+url = 'https://profi.ru/backoffice/n.php'
+
+print("Запускаем браузер...")
+browser = webdriver.Chrome(options=options)
+print("Загружаем URL...")
+browser.get(url)
+
+try:
+    print("Сохраняем сессию...")
+    pickle.dump(browser.get_cookies(), open('session', 'wb'))
+    print('Готово')
+except Exception as e:
+    print(f"Произошла ошибка: {e}")
+finally:
+    browser.quit()
