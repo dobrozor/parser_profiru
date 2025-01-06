@@ -3,8 +3,11 @@ import selenium
 from bs4 import BeautifulSoup as bs
 import time
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 import telebot
 from telebot import types
+import threading
+import pickle
 
 
 # Функция для загрузки настроек из файла
@@ -27,11 +30,9 @@ def load_settings(file_path):
 settings = load_settings('settings.txt')
 
 # Присваиваем значения переменным
-myLogin = settings['login']
-myPassword = settings['password']
 token = settings['token']
 chat_id = settings['chat_id']
-time_key = settings['time_key'] 
+time_key = settings['time_key']  # теперь это множество
 bad_words = settings['bad_words']
 
 
@@ -39,11 +40,25 @@ bad_words = settings['bad_words']
 url = 'https://profi.ru/backoffice/n.php'
 sent_links = set()  # Set to keep track of sent messages
 
+def clear_sent_links():
+    global sent_links
+    while True:
+        time.sleep(1800)  # Задержка на 30 мин
+        sent_links.clear()  # Очистка множества
+
+# Запуск фонового потока для очистки
+clear_thread = threading.Thread(target=clear_sent_links)
+clear_thread.daemon = True  # Устанавливаем поток как демон, чтобы он завершался при закрытии программы
+clear_thread.start()
+
 bot = telebot.TeleBot(token)
-options = webdriver.ChromeOptions()
-options.add_argument(
-    "user-agent=Mozilla/5.0 (compatible; U; ABrowse 0.6; Syllable) AppleWebKit/420+ (KHTML, like Gecko)")
-driver = webdriver.Chrome(options=options)
+chrome_options = Options()
+#chrome_options.add_argument("--headless")  # Запуск в фоновом режиме
+#chrome_options.add_argument("--no-sandbox")  # Для Linux
+#chrome_options.add_argument("--disable-dev-shm-usage")  # Для Linux
+
+# Создание драйвера с указанными опциями
+driver = webdriver.Chrome(options=chrome_options)
 
 def refresh_page():
     driver.refresh()
@@ -66,22 +81,14 @@ def check_conditions(subject):
 
 # Авторизация на сайте
 driver.get(url)
+time.sleep(5)
 
-# Ввод логина и пароля
-namesLogin = driver.execute_script(
-    "return document.getElementsByClassName('ui-input ui-input-bo login-form__input-login ui-input_desktop ui-input_with-placeholder_empty');")
-namesLogin[0].clear()
-namesLogin[0].send_keys(myLogin)
-namesPassword = driver.execute_script(
-    "return document.getElementsByClassName('ui-input ui-input-bo login-form__input-password ui-input_desktop ui-input_with-placeholder_empty');")
-namesPassword[0].clear()
-namesPassword[0].send_keys(myPassword)
-namesButton = driver.execute_script("return document.getElementsByClassName('ui-button');")
-namesButton[0].click()
+for cookie in pickle.load(open('session', 'rb')):
+    driver.add_cookie(cookie)
 
-# Пауза для ввода капчи
-print("Пожалуйста, введите капчу...")
-time.sleep(30)
+bot.send_message(chat_id, 'Я вошел в браузер используя печеньки...')
+driver.get(url)
+time.sleep(10)
 
 while True:
     print("Обновление страницы для получения данных...")
@@ -92,7 +99,7 @@ while True:
     containers = soup.find_all(class_="OrderSnippetContainerStyles__Container-sc-1qf4h1o-0")  # Измените класс здесь
 
     if not containers:
-        print("Ошибка в HTML, напиши в тг: @dobrozor")
+        bot.send_message(chat_id, "Ошибка в HTML, напиши в тг: @dobrozor")
         continue
 
     for container in containers:
@@ -114,6 +121,11 @@ while True:
             if any(time_word in time_info for time_word in time_key):
                 print(f"Сообщение не отправлено: '{time_info}' содержит фильтр.")
                 continue
+
+            if time_info == '1 минуту назад':
+                print(f"Сообщение не отправлено: '{time_info}' может быть спамом")
+                continue
+
             # Проверка на наличие 'плохих' слов
             if any(bad_word in subject for bad_word in bad_words):
                 print(f"Сообщение не отправлено: '{subject}' содержит фильтр.")
