@@ -1,6 +1,3 @@
-login: 
-password: 
-
 token: 
 chat_id: 
 
