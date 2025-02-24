@@ -5,9 +5,26 @@ import psutil
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
+print_code = f"██████╗░░█████╗░██████╗░░██████╗███████╗██████╗░  ██████╗░██████╗░░█████╗░███████╗██╗░░░██████╗░██╗░░░██╗\n██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗  ██╔══██╗██╔══██╗██╔══██╗██╔════╝██║░░░██╔══██╗██║░░░██║\n██████╔╝███████║██████╔╝╚█████╗░█████╗░░██████╔╝  ██████╔╝██████╔╝██║░░██║█████╗░░██║░░░██████╔╝██║░░░██║\n██╔═══╝░██╔══██║██╔══██╗░╚═══██╗██╔══╝░░██╔══██╗  ██╔═══╝░██╔══██╗██║░░██║██╔══╝░░██║░░░██╔══██╗██║░░░██║\n██║░░░░░██║░░██║██║░░██║██████╔╝███████╗██║░░██║  ██║░░░░░██║░░██║╚█████╔╝██║░░░░░██║██╗██║░░██║╚██████╔╝\n╚═╝░░░░░╚═╝░░╚═╝╚═╝░░╚═╝╚═════╝░╚══════╝╚═╝░░╚═╝  ╚═╝░░░░░╚═╝░░╚═╝░╚════╝░╚═╝░░░░░╚═╝╚═╝╚═╝░░╚═╝░╚═════╝░\n\nДля связи пиши в тг @dobrozor\n"
+print(print_code)
+
+# Чтение значений из settings.txt
+def load_settings(file_path):
+    settings = {}
+    with open(file_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and ': ' in line:  # Проверка на не пустую строку и наличие ': '
+                key, value = line.split(': ', 1)
+                settings[key] = value
+    return settings
+
+# Загрузка настроек
+settings = load_settings('settings.txt')
+
 # Путь к папке с вашим профилем Chrome
-profile_directory = r'YOU_DIRICTORY' #в строке ссылкой хром введите без ковычек "chrome://version/" и вставьте сюда строчку из "Путь к профилю" кроме последней папки
-profile_name = r'Profile 3' #а сюда вставьте последнюю папку из "Путь к профилю"
+profile_directory = os.path.dirname(settings['profile'])  # Получаем путь к директории
+profile_name = os.path.basename(settings['profile'])       # Получаем имя профиля
 
 # Проверка на наличие активных процессов Chrome
 def is_chrome_running():
@@ -15,8 +32,7 @@ def is_chrome_running():
 
 # Закрытие всех процессов Chrome
 if is_chrome_running():
-    print("Закройте все экземпляры Chrome перед запуском скрипта.")
-    time.sleep(5)
+    print("Закрываю бразуер для получения кукисов")
     os.system("taskkill /f /im chrome.exe")
 
 # Создание объекта ChromeOptions
@@ -34,7 +50,7 @@ browser.get(url)
 try:
     print("Сохраняем сессию...")
     pickle.dump(browser.get_cookies(), open('session', 'wb'))
-    print('Готово')
+    print('Готово. Теперь можешь файл session пихать в одну папку с скрирптом парсера и спокойно его запускать')
 except Exception as e:
     print(f"Произошла ошибка: {e}")
 finally:
