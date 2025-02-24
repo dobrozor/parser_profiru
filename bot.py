@@ -1,14 +1,16 @@
 import bs4
+import os
 import selenium
-from bs4 import BeautifulSoup as bs
 import time
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 import telebot
-from telebot import types
 import threading
 import pickle
 
+from random import randint
+from telebot import types
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from bs4 import BeautifulSoup as bs
 
 # Функция для загрузки настроек из файла
 def load_settings(file_path):
@@ -35,11 +37,11 @@ chat_id = settings['chat_id']
 time_key = settings['time_key']  # теперь это множество
 bad_words = settings['bad_words']
 
-
+print_code = f"██████╗░░█████╗░██████╗░░██████╗███████╗██████╗░  ██████╗░██████╗░░█████╗░███████╗██╗░░░██████╗░██╗░░░██╗\n██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗  ██╔══██╗██╔══██╗██╔══██╗██╔════╝██║░░░██╔══██╗██║░░░██║\n██████╔╝███████║██████╔╝╚█████╗░█████╗░░██████╔╝  ██████╔╝██████╔╝██║░░██║█████╗░░██║░░░██████╔╝██║░░░██║\n██╔═══╝░██╔══██║██╔══██╗░╚═══██╗██╔══╝░░██╔══██╗  ██╔═══╝░██╔══██╗██║░░██║██╔══╝░░██║░░░██╔══██╗██║░░░██║\n██║░░░░░██║░░██║██║░░██║██████╔╝███████╗██║░░██║  ██║░░░░░██║░░██║╚█████╔╝██║░░░░░██║██╗██║░░██║╚██████╔╝\n╚═╝░░░░░╚═╝░░╚═╝╚═╝░░╚═╝╚═════╝░╚══════╝╚═╝░░╚═╝  ╚═╝░░░░░╚═╝░░╚═╝░╚════╝░╚═╝░░░░░╚═╝╚═╝╚═╝░░╚═╝░╚═════╝░\n\nДля связи пиши в тг @dobrozor\n"
+print(print_code)
 #=========== ОСТАЛЬНОЕ ЛУЧШЕ НЕ МЕНЯТЬ ЕСЛИ НЕ ШАРИШ В ПИТОНЕ ============
 url = 'https://profi.ru/backoffice/n.php'
 sent_links = set()  # Set to keep track of sent messages
-
 def clear_sent_links():
     global sent_links
     while True:
@@ -83,12 +85,29 @@ def check_conditions(subject):
 driver.get(url)
 time.sleep(5)
 
-for cookie in pickle.load(open('session', 'rb')):
-    driver.add_cookie(cookie)
+# Проверяем, существует ли файл с куками
+if not os.path.exists('session'):
+    print("Файл сессии отсутствует или не найден.")
+    driver.quit()  # Закрываем браузер
+    exit()  # Завершаем выполнение скрипта
 
-bot.send_message(chat_id, 'Я вошел в браузер используя печеньки...')
-driver.get(url)
-time.sleep(10)
+try:
+    # Пытаемся загрузить куки из файла
+    cookies = pickle.load(open('session', 'rb'))
+    for cookie in cookies:
+        driver.add_cookie(cookie)
+
+    # Сообщаем об успешной загрузке кук
+    print("Захожу на сайт и написал об этом в тг")
+    bot.send_message(chat_id, 'Я вошел в браузер используя куки...')
+    driver.get(url)  # Переходим на страницу после добавления кук
+    time.sleep(10)  # Ждем загрузки страницы
+
+except Exception as e:
+    # Если произошла ошибка при загрузке кук
+    print(f"Ошибка при загрузке печенек: {e}. Обнови файл сессии.")
+    driver.quit()  # Закрываем браузер
+    exit()  # Завершаем выполнение скрипта
 
 while True:
     print("Обновление страницы для получения данных...")
@@ -99,7 +118,7 @@ while True:
     containers = soup.find_all(class_="OrderSnippetContainerStyles__Container-sc-1qf4h1o-0")  # Измените класс здесь
 
     if not containers:
-        bot.send_message(chat_id, "Ошибка в HTML, напиши в тг: @dobrozor")
+        bot.send_message(chat_id, "Необходимо обновить файл сессии. Удали предыдущий файл, запусти скрипт")
         continue
 
     for container in containers:
@@ -141,4 +160,4 @@ while True:
                     f"Данные не прошли проверку: '{subject}'")
 
     print("Ожидание перед следующим обновлением...")
-    time.sleep(120)
+    time.sleep(randint(60,120))
