@@ -1,163 +1,272 @@
-import bs4
-import os
-import selenium
 import time
-import telebot
+import random
 import threading
-import pickle
-
-from random import randint
-from telebot import types
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup as bs
+from bs4 import BeautifulSoup
+import telebot
+from telebot import types
 
-# Функция для загрузки настроек из файла
-def load_settings(file_path):
-    settings = {}
-    with open(file_path, 'r', encoding='utf-8') as f:  # Использование кодировки UTF-8
-        for line in f:
-            line = line.strip()
-            if not line:  # Пропускаем пустые строки
-                continue
-            key, value = line.split(': ', 1)  # Разбиение на ключ и значение
-            # Обрабатываем параметры, разделенные запятыми
-            if key in ['time_key', 'bad_words']:
-                settings[key] = set(value.split(','))
-            else:
-                settings[key] = value
-    return settings
+# Конфигурация приложения
+CONFIG = {
+    "TELEGRAM": {
+        "TOKEN": "TG_TOKEN_BOT",
+        "CHAT_ID": "CHAT_ID"
+    },
+    "PROFI": {
+        "URL": "https://profi.ru/backoffice/n.php",
+        "LOGIN": "LOGIN_PROFI_RU",
+        "PASSWORD": "PASS_PROFI_RU"
+    },
+    "FILTERS": {
+        "TIME_KEYWORDS": ["часов", "час", "Вчера", "января", "февраля", "марта",
+                          "апреля", "мая", "июня", "июля", "августа", "сентября",
+                          "ноября", "октября", "декабря"], #фильтр дат
+        "BAD_WORDS": ["Опрос", "3D", "копирайтер", "копирайт", "моушн",
+                      "видео", "анимация", "3d", "Опросы", "инфографика", "3Д"] #фильтр запросов
+    },
+    "SLEEP": {
+        "CLEAR_HISTORY": 3600, #очистка истории раз в час
+        "PAGE_REFRESH": (60, 120) 
+    }
+}
 
-# Загружаем настройки
-settings = load_settings('settings.txt')
+# Глобальные состояния
+sent_links = set()
+bot = telebot.TeleBot(CONFIG["TELEGRAM"]["TOKEN"])
+is_running = False
+driver = None
+main_thread = None
+clear_thread = None
 
-# Присваиваем значения переменным
-token = settings['token']
-chat_id = settings['chat_id']
-time_key = settings['time_key']  # теперь это множество
-bad_words = settings['bad_words']
 
-print_code = f"██████╗░░█████╗░██████╗░░██████╗███████╗██████╗░  ██████╗░██████╗░░█████╗░███████╗██╗░░░██████╗░██╗░░░██╗\n██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗  ██╔══██╗██╔══██╗██╔══██╗██╔════╝██║░░░██╔══██╗██║░░░██║\n██████╔╝███████║██████╔╝╚█████╗░█████╗░░██████╔╝  ██████╔╝██████╔╝██║░░██║█████╗░░██║░░░██████╔╝██║░░░██║\n██╔═══╝░██╔══██║██╔══██╗░╚═══██╗██╔══╝░░██╔══██╗  ██╔═══╝░██╔══██╗██║░░██║██╔══╝░░██║░░░██╔══██╗██║░░░██║\n██║░░░░░██║░░██║██║░░██║██████╔╝███████╗██║░░██║  ██║░░░░░██║░░██║╚█████╔╝██║░░░░░██║██╗██║░░██║╚██████╔╝\n╚═╝░░░░░╚═╝░░╚═╝╚═╝░░╚═╝╚═════╝░╚══════╝╚═╝░░╚═╝  ╚═╝░░░░░╚═╝░░╚═╝░╚════╝░╚═╝░░░░░╚═╝╚═╝╚═╝░░╚═╝░╚═════╝░\n\nДля связи пиши в тг @dobrozor\n"
-print(print_code)
-#=========== ОСТАЛЬНОЕ ЛУЧШЕ НЕ МЕНЯТЬ ЕСЛИ НЕ ШАРИШ В ПИТОНЕ ============
-url = 'https://profi.ru/backoffice/n.php'
-sent_links = set()  # Set to keep track of sent messages
-def clear_sent_links():
-    global sent_links
-    while True:
-        time.sleep(1800)  # Задержка на 30 мин
-        sent_links.clear()  # Очистка множества
+def init_driver():
+    """Инициализация веб-драйвера"""
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    return webdriver.Chrome(options=chrome_options)
 
-# Запуск фонового потока для очистки
-clear_thread = threading.Thread(target=clear_sent_links)
-clear_thread.daemon = True  # Устанавливаем поток как демон, чтобы он завершался при закрытии программы
-clear_thread.start()
 
-bot = telebot.TeleBot(token)
-chrome_options = Options()
-#chrome_options.add_argument("--headless")  # Запуск в фоновом режиме
-#chrome_options.add_argument("--no-sandbox")  # Для Linux
-#chrome_options.add_argument("--disable-dev-shm-usage")  # Для Linux
+def login(driver):
+    """Авторизация на сайте Profi.ru"""
+    try:
+        driver.get(CONFIG["PROFI"]["URL"])
+        time.sleep(5)
 
-# Создание драйвера с указанными опциями
-driver = webdriver.Chrome(options=chrome_options)
+        # Ввод логина
+        login_field = driver.find_element(By.CSS_SELECTOR, '.login-form__input-login')
+        login_field.send_keys(CONFIG["PROFI"]["LOGIN"])
 
-def refresh_page():
-    driver.refresh()
-    time.sleep(10)
+        # Ввод пароля
+        password_field = driver.find_element(By.CSS_SELECTOR, '.login-form__input-password')
+        password_field.send_keys(CONFIG["PROFI"]["PASSWORD"])
 
-def send_message(subject, description, price, time_info, link):
-    message = f"<b>{subject}</b>\n"
-    if price:
-        message += f"<b>{price}</b>\n"
-    message += f"\n{description}\n\n<i>{time_info}</i>"
-    markup = types.InlineKeyboardMarkup()
-    button = types.InlineKeyboardButton("Откликнуться", url=f"https://rnd.profi.ru{link}")
-    markup.add(button)
-    bot.send_message(chat_id, message, reply_markup=markup, parse_mode='HTML')
-
-def check_conditions(subject):
-    if any(bad_word in subject for bad_word in bad_words):
+        # Клик по кнопке входа
+        driver.find_element(By.CSS_SELECTOR, '.ui-button').click()
+        time.sleep(5)
+        return True
+    except Exception as e:
+        print(f"Ошибка авторизации: {str(e)}")
         return False
+
+
+def parse_order(container):
+    """Парсинг данных из контейнера заказа"""
+    try:
+        link = container.find('a', class_="SnippetBodyStyles__Container-sc-tnih0-2")['id'] if container.find('a',
+                                                                                                             class_="SnippetBodyStyles__Container-sc-tnih0-2") else None
+        subject = container.find(
+            class_="SubjectAndPriceStyles__SubjectsText-sc-18v5hu8-1").text.strip() if container.find(
+            class_="SubjectAndPriceStyles__SubjectsText-sc-18v5hu8-1") else None
+        description = container.find(class_="SnippetBodyStyles__MainInfo-sc-tnih0-6").text.strip() if container.find(
+            class_="SnippetBodyStyles__MainInfo-sc-tnih0-6") else None
+        price = container.find(class_="SubjectAndPriceStyles__PriceValue-sc-18v5hu8-5").text.strip() if container.find(
+            class_="SubjectAndPriceStyles__PriceValue-sc-18v5hu8-5") else None
+        time_info = container.find(class_="Date__DateText-sc-e1f8oi-1").text.strip() if container.find(
+            class_="Date__DateText-sc-e1f8oi-1") else None
+
+        if not all([link, subject, description, price, time_info]):
+            return None
+
+        return {
+            "link": link,
+            "subject": subject,
+            "description": description,
+            "price": price,
+            "time_info": time_info
+        }
+    except Exception as e:
+        print(f"Ошибка парсинга: {str(e)}")
+        return None
+
+
+def is_valid_order(order):
+    """Проверка заказа на соответствие фильтрам"""
+    if not order:
+        return False
+
+    # Фильтр по времени
+    if any(word in order["time_info"] for word in CONFIG["FILTERS"]["TIME_KEYWORDS"]):
+        return False
+
+    # Фильтр по времени публикации
+    if order["time_info"] == '1 минуту назад':
+        return False
+
+    # Фильтр по ключевым словам
+    if any(bad_word.lower() in order["subject"].lower() for bad_word in CONFIG["FILTERS"]["BAD_WORDS"]):
+        return False
+
     return True
 
-# Авторизация на сайте
-driver.get(url)
-time.sleep(5)
 
-# Проверяем, существует ли файл с куками
-if not os.path.exists('session'):
-    print("Файл сессии отсутствует или не найден.")
-    driver.quit()  # Закрываем браузер
-    exit()  # Завершаем выполнение скрипта
+def send_telegram_message(order):
+    """Отправка сообщения в Telegram"""
+    try:
+        message = f"<b>{order['subject']}</b>\n"
+        if order['price']:
+            message += f"<b>{order['price']}</b>\n"
+        message += f"\n{order['description']}\n\n<i>{order['time_info']}</i>"
 
-try:
-    # Пытаемся загрузить куки из файла
-    cookies = pickle.load(open('session', 'rb'))
-    for cookie in cookies:
-        driver.add_cookie(cookie)
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(
+            text="Откликнуться",
+            url=f"https://profi.ru/backoffice/n.php?o={order['link']}"
+        ))
 
-    # Сообщаем об успешной загрузке кук
-    print("Захожу на сайт и написал об этом в тг")
-    bot.send_message(chat_id, 'Я вошел в браузер используя куки...')
-    driver.get(url)  # Переходим на страницу после добавления кук
-    time.sleep(10)  # Ждем загрузки страницы
+        bot.send_message(
+            chat_id=CONFIG["TELEGRAM"]["CHAT_ID"],
+            text=message,
+            reply_markup=markup,
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        print(f"Ошибка отправки сообщения: {str(e)}")
 
-except Exception as e:
-    # Если произошла ошибка при загрузке кук
-    print(f"Ошибка при загрузке печенек: {e}. Обнови файл сессии.")
-    driver.quit()  # Закрываем браузер
-    exit()  # Завершаем выполнение скрипта
 
-while True:
-    print("Обновление страницы для получения данных...")
-    # Обновляем страницу и получаем новые данные
-    refresh_page()
-    page = driver.page_source
-    soup = bs(page, "html.parser")
-    containers = soup.find_all(class_="OrderSnippetContainerStyles__Container-sc-1qf4h1o-0")  # Измените класс здесь
+def clear_history():
+    """Очистка истории отправленных ссылок"""
+    global sent_links
+    while is_running:
+        time.sleep(CONFIG["SLEEP"]["CLEAR_HISTORY"])
+        sent_links.clear()
+        print("История отправленных ссылок очищена")
 
-    if not containers:
-        bot.send_message(chat_id, "Необходимо обновить файл сессии. Удали предыдущий файл, запусти скрипт")
-        continue
 
-    for container in containers:
-        link_element = container.find('a', class_="SnippetBodyStyles__Container-sc-tnih0-2")
-        subject_element = container.find(class_="SubjectAndPriceStyles__SubjectsText-sc-18v5hu8-1")
-        description_element = container.find(class_="SnippetBodyStyles__MainInfo-sc-tnih0-6")
-        price_element = container.find(class_="SubjectAndPriceStyles__PriceValue-sc-18v5hu8-5")
-        time_element = container.find(class_="Date__DateText-sc-e1f8oi-1")
+def main_loop():
+    """Основной цикл обработки заказов"""
+    global driver, is_running
+    driver = init_driver()
 
-        if link_element and subject_element and description_element:
-            subject = subject_element.text.strip()
-            description = description_element.text.strip()
-            price = price_element.text.strip() if price_element else None
-            time_info = time_element.text.strip()
-            link = link_element['href']
+    if not login(driver):
+        bot.send_message(
+            CONFIG["TELEGRAM"]["CHAT_ID"],
+            "❌ Ошибка авторизации на Profi.ru!"
+        )
+        is_running = False
+        return
 
-            print(f"Получены данные: '{subject}'")
-            # Проверка на совпадение времени
-            if any(time_word in time_info for time_word in time_key):
-                print(f"Сообщение не отправлено: '{time_info}' содержит фильтр.")
+    while is_running:
+        try:
+            # Обновление страницы
+            driver.refresh()
+            time.sleep(10)
+
+            # Парсинг страницы
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            containers = soup.find_all(class_="OrderSnippetContainerStyles__Container-sc-1qf4h1o-0")
+
+            if not containers:
+                print("Заказы не найдены")
+                time.sleep(random.randint(*CONFIG["SLEEP"]["PAGE_REFRESH"]))
                 continue
 
-            if time_info == '1 минуту назад':
-                print(f"Сообщение не отправлено: '{time_info}' может быть спамом")
-                continue
+            # Обработка заказов
+            for container in containers:
+                if not is_running:
+                    break
 
-            # Проверка на наличие 'плохих' слов
-            if any(bad_word in subject for bad_word in bad_words):
-                print(f"Сообщение не отправлено: '{subject}' содержит фильтр.")
-                continue
+                order = parse_order(container)
+                if order and is_valid_order(order) and order["link"] not in sent_links:
+                    try:
+                        send_telegram_message(order)
+                        sent_links.add(order["link"])
+                        print(f"Отправлен: {order['subject']}")
+                    except Exception as e:
+                        print(f"Ошибка обработки заказа: {str(e)}")
 
-            if description not in sent_links and check_conditions(subject):
-                print(f"Проходит проверку: '{subject}'")
-                send_message(subject, description, price, time_info, link)
-                sent_links.add(description)  # Добавляем ссылку в список отправленных сообщений
-                print(f"Сообщение отправлено.")
-            else:
-                print(
-                    f"Данные не прошли проверку: '{subject}'")
+            # Случайная задержка
+            time.sleep(random.randint(*CONFIG["SLEEP"]["PAGE_REFRESH"]))
 
-    print("Ожидание перед следующим обновлением...")
-    time.sleep(randint(60,120))
+        except Exception as e:
+            print(f"Критическая ошибка: {str(e)}")
+            time.sleep(60)
+
+    if driver:
+        driver.quit()
+        driver = None
+
+
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    global is_running, main_thread, clear_thread
+
+    if is_running:
+        bot.send_message(message.chat.id, "Бот уже запущен!")
+        return
+
+    is_running = True
+    main_thread = threading.Thread(target=main_loop)
+    clear_thread = threading.Thread(target=clear_history)
+
+    main_thread.start()
+    clear_thread.start()
+
+    bot.send_message(message.chat.id, "Бот запущен и начал мониторинг заказов!")
+
+
+@bot.message_handler(commands=['stop'])
+def stop_command(message):
+    global is_running, main_thread, clear_thread, driver
+
+    if not is_running:
+        bot.send_message(message.chat.id, "Бот уже остановлен!")
+        return
+
+    is_running = False
+
+    if main_thread:
+        main_thread.join()
+    if clear_thread:
+        clear_thread.join()
+
+    if driver:
+        driver.quit()
+        driver = None
+
+    bot.send_message(message.chat.id, "Бот остановлен!")
+
+
+@bot.message_handler(commands=['clear'])
+def clear_command(message):
+    global sent_links
+    sent_links.clear()
+    bot.send_message(message.chat.id, "Список отправленных ссылок очищен!")
+
+
+@bot.message_handler(commands=['get'])
+def get_command(message):
+    global sent_links
+    if not sent_links:
+        bot.send_message(message.chat.id, "Список отправленных ссылок пуст!")
+    else:
+        links_text = "\n".join(sent_links)
+        bot.send_message(message.chat.id, f"Отправленные ссылки:\n{links_text}")
+
+
+if __name__ == "__main__":
+    print("Бот запущен. Ожидание команд...")
+    bot.infinity_polling()
