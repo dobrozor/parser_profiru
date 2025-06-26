@@ -18,26 +18,33 @@ import webbrowser
 class ProfiMonitorApp(ctk.CTk):
     CONFIG_FILE = "profi_config.json"
 
-    # Цветовая палитра
+    # Обновленная цветовая палитра с белым фоном
     COLORS = {
         "primary": "#2B2B2B",
-        "secondary": "#F5F5F5",
+        "secondary": "#FFFFFF",  # Белый фон
         "accent": "#FF6D00",
         "success": "#4CAF50",
         "danger": "#F44336",
-        "text": "#333333"
+        "text": "#333333",
+        "widget_bg": "#F5F5F5",  # Светлый фон для виджетов
+        "border": "#E0E0E0"  # Цвет границ
     }
 
     def __init__(self):
         super().__init__()
         self.title("Profi.ru Monitor")
-        self.geometry("500x700")
-        self.minsize(500, 700)
+        self.geometry("500x780")  # Увеличили высоту для новых элементов
+        self.minsize(500, 780)
+
+        # Устанавливаем белую тему и светлый режим
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")
 
         # Инициализация переменных
         self.driver = None
         self.sent_links = set()
         self.is_running = False
+        self.debug_mode = ctk.BooleanVar(value=False)  # Для чекбокса отладки
 
         self.create_widgets()
         self.setup_threads()
@@ -49,6 +56,9 @@ class ProfiMonitorApp(ctk.CTk):
         # Настройка сетки
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+
+        # Основной фон приложения - белый
+        self.configure(fg_color=self.COLORS["secondary"])
 
         # Заголовок
         self.header = ctk.CTkLabel(
@@ -68,9 +78,9 @@ class ProfiMonitorApp(ctk.CTk):
         config_frame = ctk.CTkFrame(
             main_frame,
             corner_radius=12,
-            fg_color="#FFFFFF",
+            fg_color=self.COLORS["widget_bg"],
             border_width=1,
-            border_color="#E0E0E0"
+            border_color=self.COLORS["border"]
         )
         config_frame.grid(row=0, column=0, padx=0, pady=(0, 15), sticky="nsew")
 
@@ -83,7 +93,11 @@ class ProfiMonitorApp(ctk.CTk):
 
         self.entries = {}
         for i, (text, name, is_password) in enumerate(fields):
-            label = ctk.CTkLabel(config_frame, text=text)
+            label = ctk.CTkLabel(
+                config_frame,
+                text=text,
+                text_color=self.COLORS["text"]
+            )
             label.grid(row=i, column=0, padx=10, pady=5, sticky="e")
 
             # Создаем поле ввода с учетом типа
@@ -91,12 +105,55 @@ class ProfiMonitorApp(ctk.CTk):
                 config_frame,
                 width=400,
                 corner_radius=8,
-                show="•" if is_password else "",  # Используем символ точки вместо *
-                font=ctk.CTkFont(size=14) if not is_password else ctk.CTkFont(size=16)  # Больший размер для точек
+                fg_color="white",
+                border_color=self.COLORS["border"],
+                text_color=self.COLORS["text"],
+                show="•" if is_password else "",
+                font=ctk.CTkFont(size=14)
             )
-
             entry.grid(row=i, column=1, padx=10, pady=5, sticky="ew")
             self.entries[name] = entry
+
+        # Дополнительные стоп-слова
+        row_idx = len(fields)
+        label = ctk.CTkLabel(
+            config_frame,
+            text="Дополнительные стоп-слова",
+            text_color=self.COLORS["text"]
+        )
+        label.grid(row=row_idx, column=0, padx=10, pady=5, sticky="e")
+
+        custom_bad_words_entry = ctk.CTkEntry(
+            config_frame,
+            width=400,
+            corner_radius=8,
+            fg_color="white",
+            border_color=self.COLORS["border"],
+            text_color=self.COLORS["text"],
+            font=ctk.CTkFont(size=14),
+            placeholder_text="Введите слова через запятую"
+        )
+        custom_bad_words_entry.grid(row=row_idx, column=1, padx=10, pady=5, sticky="ew")
+        self.entries["CUSTOM_BAD_WORDS"] = custom_bad_words_entry
+
+        # Чекбокс для отладки
+        row_idx += 1
+        debug_checkbox = ctk.CTkCheckBox(
+            config_frame,
+            text="Отладка (показывать браузер)",
+            variable=self.debug_mode,
+            onvalue=True,
+            offvalue=False,
+            checkbox_width=18,
+            checkbox_height=18,
+            corner_radius=4,
+            border_width=1,
+            border_color=self.COLORS["border"],
+            fg_color=self.COLORS["accent"],
+            hover_color="#FF8000",
+            text_color=self.COLORS["text"]
+        )
+        debug_checkbox.grid(row=row_idx, column=1, padx=10, pady=(5, 10), sticky="w")
 
         # Кнопки управления
         button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -110,7 +167,7 @@ class ProfiMonitorApp(ctk.CTk):
             height=40,
             fg_color=self.COLORS["accent"],
             hover_color="#FF8000",
-            text_color="#FFFFFF",
+            text_color="white",
             font=ctk.CTkFont(size=14, weight="bold")
         )
         self.start_btn.pack(side="left", padx=(0, 10), fill="x", expand=True)
@@ -122,9 +179,9 @@ class ProfiMonitorApp(ctk.CTk):
             state="disabled",
             corner_radius=8,
             height=40,
-            fg_color="#BDBDBD",
-            hover_color="#9E9E9E",
-            text_color="#FFFFFF",
+            fg_color=self.COLORS["danger"],
+            hover_color="#D32F2F",
+            text_color="white",
             font=ctk.CTkFont(size=14, weight="bold")
         )
         self.stop_btn.pack(side="right", fill="x", expand=True)
@@ -133,9 +190,9 @@ class ProfiMonitorApp(ctk.CTk):
         log_frame = ctk.CTkFrame(
             main_frame,
             corner_radius=12,
-            fg_color="#FFFFFF",
+            fg_color=self.COLORS["widget_bg"],
             border_width=1,
-            border_color="#E0E0E0"
+            border_color=self.COLORS["border"]
         )
         log_frame.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
         log_frame.grid_columnconfigure(0, weight=1)
@@ -147,10 +204,10 @@ class ProfiMonitorApp(ctk.CTk):
             font=ctk.CTkFont(family="Consolas", size=12),
             activate_scrollbars=True,
             corner_radius=8,
-            fg_color="#FAFAFA",
+            fg_color="white",
             text_color=self.COLORS["text"],
             border_width=1,
-            border_color="#E0E0E0"
+            border_color=self.COLORS["border"]
         )
         self.log_area.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
 
@@ -224,6 +281,8 @@ class ProfiMonitorApp(ctk.CTk):
                     for key, entry in self.entries.items():
                         entry.delete(0, tk.END)
                         entry.insert(0, config.get(key, ''))
+                    # Загружаем состояние чекбокса отладки
+                    self.debug_mode.set(config.get("DEBUG_MODE", False))
                 self.log_message("Настройки загружены из файла")
             except Exception as e:
                 self.log_message(f"Ошибка загрузки настроек: {str(e)}")
@@ -234,7 +293,9 @@ class ProfiMonitorApp(ctk.CTk):
                 "TELEGRAM_TOKEN": self.entries["TELEGRAM_TOKEN"].get(),
                 "TELEGRAM_CHAT_ID": self.entries["TELEGRAM_CHAT_ID"].get(),
                 "PROFI_LOGIN": self.entries["PROFI_LOGIN"].get(),
-                "PROFI_PASSWORD": self.entries["PROFI_PASSWORD"].get()
+                "PROFI_PASSWORD": self.entries["PROFI_PASSWORD"].get(),
+                "CUSTOM_BAD_WORDS": self.entries["CUSTOM_BAD_WORDS"].get(),
+                "DEBUG_MODE": self.debug_mode.get()
             }
 
             with open(self.CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -251,8 +312,8 @@ class ProfiMonitorApp(ctk.CTk):
 
     def start_monitoring(self):
         self.save_config()
-        if not all(self.entries[e].get() for e in self.entries):
-            self.log_message("Ошибка: Заполните все поля конфигурации!")
+        if not all(self.entries[e].get() for e in self.entries if e != "CUSTOM_BAD_WORDS"):
+            self.log_message("Ошибка: Заполните все обязательные поля конфигурации!")
             return
 
         self.is_running = True
@@ -267,6 +328,11 @@ class ProfiMonitorApp(ctk.CTk):
             hover_color="#D32F2F"
         )
 
+        # Обрабатываем дополнительные стоп-слова
+        custom_bad_words = []
+        if self.entries["CUSTOM_BAD_WORDS"].get().strip():
+            custom_bad_words = [word.strip().lower() for word in self.entries["CUSTOM_BAD_WORDS"].get().split(',')]
+
         config = {
             "TELEGRAM": {
                 "TOKEN": self.entries["TELEGRAM_TOKEN"].get(),
@@ -280,12 +346,14 @@ class ProfiMonitorApp(ctk.CTk):
                 "TIME_KEYWORDS": ["часов", "час", "Вчера", "января", "февраля", "марта",
                                   "апреля", "мая", "июня", "июля", "августа", "сентября",
                                   "ноября", "октября", "декабря"],
-                "BAD_WORDS": ["Опрос", "Опросы"]
+                "BAD_WORDS": ["Опрос", "Опросы"],
+                "CUSTOM_BAD_WORDS": custom_bad_words  # Добавляем пользовательские стоп-слова
             },
             "SLEEP": {
                 "CLEAR_HISTORY": 3600,
                 "PAGE_REFRESH": (60, 120)
-            }
+            },
+            "DEBUG_MODE": self.debug_mode.get()
         }
 
         self.monitor_thread = threading.Thread(
@@ -319,11 +387,12 @@ class ProfiMonitorApp(ctk.CTk):
             self.driver.quit()
             self.driver = None
 
-    def init_driver(self):
+    def init_driver(self, debug_mode=False):
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        if not debug_mode:
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         return webdriver.Chrome(options=chrome_options)
 
@@ -379,7 +448,7 @@ class ProfiMonitorApp(ctk.CTk):
                 self.log_message("История отправленных ссылок очищена")
 
     def main_loop(self, config):
-        self.driver = self.init_driver()
+        self.driver = self.init_driver(config["DEBUG_MODE"])
 
         if not self.login(self.driver, config):
             self.log_message("❌ Ошибка авторизации на Profi.ru!")
@@ -461,20 +530,24 @@ class ProfiMonitorApp(ctk.CTk):
 
         time_checks = [
             any(word in order["time_info"] for word in config["FILTERS"]["TIME_KEYWORDS"]),
-            order["time_info"] == '1 минуту назад'
+            #order["time_info"] == '1 минуту назад'
         ]
 
         if any(time_checks):
             return False
 
+        # Объединяем стандартные и пользовательские стоп-слова
+        all_bad_words = config["FILTERS"]["BAD_WORDS"] + config["FILTERS"]["CUSTOM_BAD_WORDS"]
+
         if any(bad_word.lower() in order["subject"].lower()
-               for bad_word in config["FILTERS"]["BAD_WORDS"]):
+               for bad_word in all_bad_words):
             return False
 
         if order["link"] in self.sent_links:
             return False
 
         return True
+
 
 if __name__ == "__main__":
     app = ProfiMonitorApp()
