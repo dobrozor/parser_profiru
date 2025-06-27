@@ -112,9 +112,6 @@ def is_valid_order(order):
     if any(word in order["time_info"] for word in CONFIG["FILTERS"]["TIME_KEYWORDS"]):
         return False
 
-    # Фильтр по времени публикации
-    if order["time_info"] == '1 минуту назад':
-        return False
 
     # Фильтр по ключевым словам
     if any(bad_word.lower() in order["subject"].lower() for bad_word in CONFIG["FILTERS"]["BAD_WORDS"]):
