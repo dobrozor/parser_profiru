@@ -13,6 +13,7 @@ import json
 import os
 import customtkinter as ctk
 import webbrowser
+import re  # Импорт для обработки времени
 
 
 class ProfiMonitorApp(ctk.CTk):
@@ -30,27 +31,39 @@ class ProfiMonitorApp(ctk.CTk):
         "border": "#E0E0E0"  # Цвет границ
     }
 
+    # Константы для выбора порога времени
+    TIME_THRESHOLD_OPTIONS = {
+        "Меньше 1 часа": 1,
+        "Меньше 3 часов": 3,
+        "Меньше 6 часов": 6,
+        "Меньше 12 часов": 12,
+        "Меньше 24 часов (сутки)": 24,
+        "Все (без фильтра по времени)": 99999
+    }
+    DEFAULT_TIME_THRESHOLD_KEY = "Меньше 6 часов"
+
     def __init__(self):
         super().__init__()
         self.title("Profi.ru Monitor")
-        self.geometry("500x780")  # Увеличили высоту для новых элементов
-        self.minsize(500, 780)
+        self.geometry("500x780")
+        self.minsize(780, 780)
 
-        # Устанавливаем белую тему и светлый режим
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
-        # Инициализация переменных
         self.driver = None
         self.sent_links = set()
         self.is_running = False
-        self.debug_mode = ctk.BooleanVar(value=False)  # Для чекбокса отладки
+        self.debug_mode = ctk.BooleanVar(value=False)
+        self.time_threshold_var = ctk.StringVar(
+            value=self.DEFAULT_TIME_THRESHOLD_KEY)  # Новая переменная для порога времени
 
         self.create_widgets()
         self.setup_threads()
         self.load_config()
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.log_message("✅ Приложение инициализировано.")
 
     def create_widgets(self):
         # Настройка сетки
@@ -135,6 +148,30 @@ class ProfiMonitorApp(ctk.CTk):
         )
         custom_bad_words_entry.grid(row=row_idx, column=1, padx=10, pady=5, sticky="ew")
         self.entries["CUSTOM_BAD_WORDS"] = custom_bad_words_entry
+
+        # --- НОВЫЙ ЭЛЕМЕНТ: Порог времени ---
+        row_idx += 1
+        time_label = ctk.CTkLabel(
+            config_frame,
+            text="Максимальный возраст заказа (часов)",
+            text_color=self.COLORS["text"]
+        )
+        time_label.grid(row=row_idx, column=0, padx=10, pady=5, sticky="e")
+
+        time_options = list(self.TIME_THRESHOLD_OPTIONS.keys())
+        self.time_threshold_menu = ctk.CTkOptionMenu(
+            config_frame,
+            variable=self.time_threshold_var,
+            values=time_options,
+            corner_radius=8,
+            fg_color="white",
+            button_color=self.COLORS["border"],
+            button_hover_color="#EFEFEF",
+            text_color=self.COLORS["text"],
+            font=ctk.CTkFont(size=14)
+        )
+        self.time_threshold_menu.grid(row=row_idx, column=1, padx=10, pady=5, sticky="ew")
+        # -----------------------------------
 
         # Чекбокс для отладки
         row_idx += 1
@@ -269,7 +306,7 @@ class ProfiMonitorApp(ctk.CTk):
 
     def log_message(self, message):
         self.log_area.configure(state="normal")
-        self.log_area.insert("end", f"{message}\n")
+        self.log_area.insert("end", f"{time.strftime('%H:%M:%S')} - {message}\n")
         self.log_area.see("end")
         self.log_area.configure(state="disabled")
 
@@ -281,11 +318,20 @@ class ProfiMonitorApp(ctk.CTk):
                     for key, entry in self.entries.items():
                         entry.delete(0, tk.END)
                         entry.insert(0, config.get(key, ''))
-                    # Загружаем состояние чекбокса отладки
+
                     self.debug_mode.set(config.get("DEBUG_MODE", False))
-                self.log_message("Настройки загружены из файла")
+
+                    # --- Загрузка нового параметра ---
+                    saved_threshold = config.get("TIME_THRESHOLD", self.DEFAULT_TIME_THRESHOLD_KEY)
+                    if saved_threshold in self.TIME_THRESHOLD_OPTIONS:
+                        self.time_threshold_var.set(saved_threshold)
+                    # --------------------------------
+
+                self.log_message("📁 Настройки загружены из файла")
             except Exception as e:
-                self.log_message(f"Ошибка загрузки настроек: {str(e)}")
+                self.log_message(f"❌ Ошибка загрузки настроек: {str(e)}")
+        else:
+            self.log_message("ℹ️ Файл настроек не найден. Используются значения по умолчанию.")
 
     def save_config(self):
         try:
@@ -295,25 +341,27 @@ class ProfiMonitorApp(ctk.CTk):
                 "PROFI_LOGIN": self.entries["PROFI_LOGIN"].get(),
                 "PROFI_PASSWORD": self.entries["PROFI_PASSWORD"].get(),
                 "CUSTOM_BAD_WORDS": self.entries["CUSTOM_BAD_WORDS"].get(),
-                "DEBUG_MODE": self.debug_mode.get()
+                "DEBUG_MODE": self.debug_mode.get(),
+                "TIME_THRESHOLD": self.time_threshold_var.get()  # Сохраняем выбранный порог
             }
 
             with open(self.CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
 
-            self.log_message("Настройки успешно сохранены")
+            self.log_message("💾 Настройки успешно сохранены")
         except Exception as e:
-            self.log_message(f"Ошибка сохранения настроек: {str(e)}")
+            self.log_message(f"❌ Ошибка сохранения настроек: {str(e)}")
 
     def setup_threads(self):
         self.monitor_thread = None
         self.clear_thread = None
         self.is_running = False
+        self.log_message("⚙️ Потоки инициализированы.")
 
     def start_monitoring(self):
         self.save_config()
         if not all(self.entries[e].get() for e in self.entries if e != "CUSTOM_BAD_WORDS"):
-            self.log_message("Ошибка: Заполните все обязательные поля конфигурации!")
+            self.log_message("❌ Ошибка: Заполните все обязательные поля конфигурации!")
             return
 
         self.is_running = True
@@ -327,11 +375,20 @@ class ProfiMonitorApp(ctk.CTk):
             fg_color=self.COLORS["danger"],
             hover_color="#D32F2F"
         )
+        self.log_message("⏳ Запуск мониторинга...")
 
         # Обрабатываем дополнительные стоп-слова
         custom_bad_words = []
         if self.entries["CUSTOM_BAD_WORDS"].get().strip():
             custom_bad_words = [word.strip().lower() for word in self.entries["CUSTOM_BAD_WORDS"].get().split(',')]
+            self.log_message(f"🚫 Добавлены пользовательские стоп-слова: {', '.join(custom_bad_words)}")
+
+        # Получаем значение порога в часах
+        selected_threshold_key = self.time_threshold_var.get()
+        time_threshold_hours = self.TIME_THRESHOLD_OPTIONS.get(selected_threshold_key, self.TIME_THRESHOLD_OPTIONS[
+            self.DEFAULT_TIME_THRESHOLD_KEY])
+        self.log_message(
+            f"⏰ Установлен максимальный возраст заказа: {selected_threshold_key} ({time_threshold_hours} ч)")
 
         config = {
             "TELEGRAM": {
@@ -343,15 +400,13 @@ class ProfiMonitorApp(ctk.CTk):
                 "PASSWORD": self.entries["PROFI_PASSWORD"].get()
             },
             "FILTERS": {
-                "TIME_KEYWORDS": ["часов", "час", "Вчера", "января", "февраля", "марта",
-                                  "апреля", "мая", "июня", "июля", "августа", "сентября",
-                                  "ноября", "октября", "декабря"],
+                "TIME_THRESHOLD_HOURS": time_threshold_hours,  # Новый параметр
                 "BAD_WORDS": ["Опрос", "Опросы"],
-                "CUSTOM_BAD_WORDS": custom_bad_words  # Добавляем пользовательские стоп-слова
+                "CUSTOM_BAD_WORDS": custom_bad_words
             },
             "SLEEP": {
                 "CLEAR_HISTORY": 3600,
-                "PAGE_REFRESH": (60, 120)
+                "PAGE_REFRESH": (10, 15)
             },
             "DEBUG_MODE": self.debug_mode.get()
         }
@@ -368,8 +423,12 @@ class ProfiMonitorApp(ctk.CTk):
             daemon=True
         )
         self.clear_thread.start()
+        self.log_message("✅ Мониторинг запущен в фоновом режиме")
 
     def stop_monitoring(self):
+        if not self.is_running:
+            return
+
         self.is_running = False
         self.start_btn.configure(
             state="normal",
@@ -381,38 +440,65 @@ class ProfiMonitorApp(ctk.CTk):
             fg_color="#BDBDBD",
             hover_color="#9E9E9E"
         )
-        self.log_message("Мониторинг остановлен")
+        self.log_message("🛑 Мониторинг остановлен. Закрываю браузер...")
 
         if self.driver:
-            self.driver.quit()
-            self.driver = None
+            try:
+                self.driver.quit()
+                self.driver = None
+                self.log_message("🌐 Браузер успешно закрыт.")
+            except Exception as e:
+                self.log_message(f"❌ Ошибка при закрытии браузера: {str(e)}")
 
     def init_driver(self, debug_mode=False):
+        self.log_message(f"🌐 Инициализация браузера. Режим отладки: {'ВКЛ' if debug_mode else 'ВЫКЛ'}")
         chrome_options = Options()
         if not debug_mode:
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        return webdriver.Chrome(options=chrome_options)
+
+        try:
+            driver = webdriver.Chrome(options=chrome_options)
+            self.log_message("✅ WebDriver запущен.")
+            return driver
+        except Exception as e:
+            self.log_message(f"❌ Ошибка запуска WebDriver: {str(e)}")
+            self.stop_monitoring()
+            return None
 
     def login(self, driver, config):
+        if not driver:
+            return False
+
         try:
-            self.log_message("Начинаю авторизацию")
+            self.log_message("🔑 Начинаю авторизацию: переход на страницу входа.")
             driver.get("https://profi.ru/backoffice/n.php")
-            time.sleep(5)
+            time.sleep(1)
 
             driver.find_element(By.CSS_SELECTOR, '.login-form__input-login') \
                 .send_keys(config["PROFI"]["LOGIN"])
+            self.log_message("➡️ Введен логин.")
 
             driver.find_element(By.CSS_SELECTOR, '.login-form__input-password') \
                 .send_keys(config["PROFI"]["PASSWORD"])
+            self.log_message("➡️ Введен пароль.")
 
             driver.find_element(By.CSS_SELECTOR, '.ui-button').click()
-            time.sleep(5)
+            self.log_message("➡️ Нажата кнопка 'Войти'.")
+            time.sleep(2)
+
+            if "login-form" in driver.current_url:
+                self.log_message("❌ Авторизация не удалась. Проверьте логин/пароль.")
+                return False
+
+            self.log_message("✅ Авторизация успешна!")
             return True
         except Exception as e:
-            self.log_message(f"Ошибка авторизации: {str(e)}")
+            self.log_message(f"❌ Ошибка авторизации (Selenium): {str(e)}")
             return False
 
     def send_telegram_message(self, config, order):
@@ -420,7 +506,7 @@ class ProfiMonitorApp(ctk.CTk):
             bot = telebot.TeleBot(config["TELEGRAM"]["TOKEN"])
 
             message = f"<b>{order['subject']}</b>\n"
-            if order['price']:
+            if order['price'] and order['price'] != "Цена не указана":
                 message += f"<b>{order['price']}</b>\n"
             message += f"\n{order['description']}\n\n<i>{order['time_info']}</i>"
 
@@ -436,82 +522,124 @@ class ProfiMonitorApp(ctk.CTk):
                 reply_markup=markup,
                 parse_mode='HTML'
             )
-            self.log_message(f"Отправлен заказ: {order['subject']}")
+            self.log_message(f"➡️ Telegram: Отправлен заказ {order['link']} ({order['subject']})")
         except Exception as e:
-            self.log_message(f"Ошибка отправки: {str(e)}")
+            self.log_message(f"❌ Ошибка отправки в Telegram: {str(e)}")
 
     def clear_history(self):
+        self.log_message(f"⏳ Поток очистки истории запущен. Интервал: 3600 сек.")
         while self.is_running:
             time.sleep(3600)
-            if self.is_running:  # Дополнительная проверка
+            if self.is_running:
                 self.sent_links.clear()
-                self.log_message("История отправленных ссылок очищена")
+                self.log_message("🧹 История отправленных ссылок очищена (плановая очистка)")
 
     def main_loop(self, config):
         self.driver = self.init_driver(config["DEBUG_MODE"])
+        if not self.driver:
+            return
 
         if not self.login(self.driver, config):
-            self.log_message("❌ Ошибка авторизации на Profi.ru!")
             self.stop_monitoring()
             return
 
-        self.log_message("Авторизация успешна! Начало мониторинга...")
+        self.log_message("✅ Авторизация успешна! Начало мониторинга...")
 
         while self.is_running:
             try:
+                refresh_time = random.randint(*config["SLEEP"]["PAGE_REFRESH"])
+                self.log_message(f"🔄 Обновляю страницу. Следующее обновление через {refresh_time} сек.")
                 self.driver.refresh()
-                time.sleep(10)
+                time.sleep(3)
 
+                # Получаем HTML
                 soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+
                 containers = soup.find_all(
-                    class_="OrderSnippetContainerStyles__Container-sc-1qf4h1o-0"
+                    'a', attrs={'data-testid': lambda x: x and x.endswith('_order-snippet')}
                 )
+                self.log_message(f"🔍 Найдено {len(containers)} контейнеров заказов на странице.")
 
                 if not containers:
-                    self.log_message("Заказы не найдены. Проверьте авторизацию или перезапустите программу")
-                    time.sleep(random.randint(*config["SLEEP"]["PAGE_REFRESH"]))
+                    self.log_message("ℹ️ Заказы не найдены. Проверьте авторизацию или наличие новых заказов.")
+                    time.sleep(refresh_time)
                     continue
 
+                new_orders_count = 0
                 for container in containers:
                     if not self.is_running:
                         break
 
                     order = self.parse_order(container)
-                    if order and self.is_valid_order(config, order):
-                        self.send_telegram_message(config, order)
-                        self.sent_links.add(order["link"])
 
-                time.sleep(random.randint(*config["SLEEP"]["PAGE_REFRESH"]))
+                    if order:
+                        if self.is_valid_order(config, order):
+                            self.send_telegram_message(config, order)
+                            self.sent_links.add(order["link"])
+                            new_orders_count += 1
+                        else:
+                            pass  # Логирование причины пропуска происходит внутри is_valid_order
+                    else:
+                        self.log_message(f"⚠️ Парсинг контейнера не удался. Пропускаю.")
+
+                self.log_message(f"✨ За цикл обработано новых заказов: {new_orders_count}")
+                time.sleep(refresh_time)
 
             except Exception as e:
-                self.log_message(f"Ошибка: {str(e)}")
+                self.log_message(f"❌ Критическая ошибка в цикле мониторинга: {str(e)}")
                 time.sleep(60)
 
+        # Выход из цикла - остановка мониторинга
         if self.driver:
-            self.driver.quit()
-            self.driver = None
+            try:
+                self.driver.quit()
+                self.driver = None
+            except:
+                pass
 
     def parse_order(self, container):
-        """Парсинг данных из контейнера заказа"""
+        """Парсинг данных из контейнера заказа (тега <a>)"""
         try:
-            link_tag = container.find('a')
-            link = link_tag['id'] if link_tag else None
+            # 1. ID Заказа (Link)
+            link = container.get('data-testid', '').split('_')[0]
 
-            subject_tag = container.find(class_="SubjectAndPriceStyles__SubjectsText-sc-18v5hu8-1")
+            # 2. Тема (Subject)
+            subject_tag = container.find('h3')
             subject = subject_tag.text.strip() if subject_tag else None
 
-            desc_tag = container.find(class_="SnippetBodyStyles__MainInfo-sc-tnih0-6")
-            description = desc_tag.text.strip() if desc_tag else None
+            # 3. Описание (Description)
+            description_tag = container.find('div', class_=lambda c: c and 'sc-tnih0-' in c)
+            if not description_tag:
+                description_tag = container.find('p')
+            description = description_tag.text.strip() if description_tag else None
 
-            price_tag = container.find(class_="SubjectAndPriceStyles__PriceValue-sc-18v5hu8-5")
-            price = price_tag.text.strip() if price_tag else None
+            # 4. Цена (Price)
+            price_tag = container.find('span', class_='sc-eOWKyy')
+            if not price_tag:
+                price_tag = container.find('span', class_=lambda c: c and ('PriceValue' in c or 'sc-kCkVJn' in c))
 
-            time_tag = container.find(class_="Date__DateText-sc-e1f8oi-1")
+            price = None
+            if price_tag:
+                full_price_text = price_tag.get_text(strip=True, separator=' ')
+                price = ' '.join(full_price_text.split()).replace(' false', '').replace('false', '').strip()
+
+                if not price:
+                    price = None
+
+            # 5. Время (Time Info)
+            time_tag = container.find('span', class_=lambda c: c and 'Date__' in c)
+            if not time_tag:
+                time_tag = container.find('span', class_=lambda c: c and 'sc-iaHkcm' in c)
             time_info = time_tag.text.strip() if time_tag else None
 
-            # Проверяем, что все поля заполнены
-            if not all([link, subject, description, price, time_info]):
+            if not all([link, subject]):
+                self.log_message(f"⚠️ Пропущен заказ: не найден Link ({link}) или Subject ({subject}).")
                 return None
+
+            # Устанавливаем значения по умолчанию
+            if not description: description = "Описание не найдено."
+            if not price: price = "Цена не указана"
+            if not time_info: time_info = "Время не указано"
 
             return {
                 "link": link,
@@ -521,30 +649,73 @@ class ProfiMonitorApp(ctk.CTk):
                 "time_info": time_info
             }
         except Exception as e:
-            self.log_message(f"Ошибка парсинга: {str(e)}")
+            self.log_message(f"❌ Ошибка парсинга контейнера {container.get('data-testid', 'N/A')}: {str(e)}")
             return None
+
+    def is_recent_order(self, time_info, max_hours):
+        """
+        Проверяет, является ли заказ "свежим" на основании его time_info и максимального порога в часах.
+
+        :param time_info: Строка времени из парсинга (например, "8 часов назад", "Вчера", "14:30")
+        :param max_hours: Максимально допустимый возраст заказа в часах (int)
+        :return: True, если заказ свежее порога, False в противном случае.
+        """
+        if max_hours >= self.TIME_THRESHOLD_OPTIONS["Все (без фильтра по времени)"]:
+            return True  # Фильтр отключен
+
+        lower_time_info = time_info.lower()
+
+        # 1. Фильтрация по дням, месяцам, датам
+        # Если присутствуют слова "Вчера", "день" (или части) или название месяца, считаем заказ слишком старым
+        if any(word in lower_time_info for word in ["вчера", "дней", "день", "января", "февраля", "марта",
+                                                    "апреля", "мая", "июня", "июля", "августа", "сентября",
+                                                    "ноября", "октября", "декабря"]):
+            return False
+
+        # 2. Фильтрация по часам/минутам
+
+        # Регулярное выражение для поиска "N минут/часов назад"
+        # Пример: 15 минут назад, 8 часов назад
+        match = re.search(r'(\d+)\s+(минут|мин|часов|час)', lower_time_info)
+
+        if match:
+            value = int(match.group(1))
+            unit = match.group(2)
+
+            if "час" in unit:
+                age_in_hours = value
+            elif "мин" in unit:
+                age_in_hours = value / 60.0
+            else:
+                return True  
+
+            return age_in_hours <= max_hours
+        if re.match(r'\d{1,2}:\d{2}', lower_time_info):
+
+            return True
+
+        return True
 
     def is_valid_order(self, config, order):
         if not order:
             return False
 
-        time_checks = [
-            any(word in order["time_info"] for word in config["FILTERS"]["TIME_KEYWORDS"]),
-            #order["time_info"] == '1 минуту назад'
-        ]
-
-        if any(time_checks):
-            return False
-
-        # Объединяем стандартные и пользовательские стоп-слова
-        all_bad_words = config["FILTERS"]["BAD_WORDS"] + config["FILTERS"]["CUSTOM_BAD_WORDS"]
-
-        if any(bad_word.lower() in order["subject"].lower()
-               for bad_word in all_bad_words):
-            return False
-
         if order["link"] in self.sent_links:
+            self.log_message(f"🚫 Пропущен заказ {order['link']}: уже был отправлен.")
             return False
+            
+        if not self.is_recent_order(order["time_info"], config["FILTERS"]["TIME_THRESHOLD_HOURS"]):
+            self.log_message(
+                f"🚫 Пропущен заказ {order['link']}: не соответствует порогу по времени ({order['time_info']}).")
+            return False
+        # Проверка на стоп-слова
+        all_bad_words = config["FILTERS"]["BAD_WORDS"] + config["FILTERS"]["CUSTOM_BAD_WORDS"]
+        subject_lower = order["subject"].lower()
+
+        for bad_word in all_bad_words:
+            if bad_word.lower() in subject_lower:
+                self.log_message(f"🚫 Пропущен заказ {order['link']}: стоп-слово '{bad_word}' в теме.")
+                return False
 
         return True
 
