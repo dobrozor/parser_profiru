@@ -6,6 +6,8 @@ import threading
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import telebot
 from telebot import types
@@ -453,16 +455,30 @@ class ProfiMonitorApp(ctk.CTk):
     def init_driver(self, debug_mode=False):
         self.log_message(f"🌐 Инициализация браузера. Режим отладки: {'ВКЛ' if debug_mode else 'ВЫКЛ'}")
         chrome_options = Options()
+
+        # Общие настройки для скрытности
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+
+        # Настройки для скорости и стабильности
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("--log-level=3")  # Отключает большинство логов
+        chrome_options.add_argument("--mute-audio")
+        # Добавляем User-Agent для имитации реального браузера
+        chrome_options.add_argument(
+            'user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
         if not debug_mode:
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_argument("--disable-dev-shm-usage")  # Важно для Linux-систем
 
         try:
             driver = webdriver.Chrome(options=chrome_options)
+            # --- НОВОЕ: Неявное ожидание для всех find_element ---
+            driver.implicitly_wait(5)
+            # ---------------------------------------------------
             self.log_message("✅ WebDriver запущен.")
             return driver
         except Exception as e:
@@ -474,22 +490,55 @@ class ProfiMonitorApp(ctk.CTk):
         if not driver:
             return False
 
+        # Установите максимальное время ожидания в секундах
+        WAIT_TIMEOUT = 10
+
         try:
             self.log_message("🔑 Начинаю авторизацию: переход на страницу входа.")
             driver.get("https://profi.ru/backoffice/n.php")
-            time.sleep(1)
 
-            driver.find_element(By.CSS_SELECTOR, '.login-form__input-login') \
-                .send_keys(config["PROFI"]["LOGIN"])
+            # --- ОЖИДАНИЕ ПОЛЯ ЛОГИНА (data-testid) ---
+            login_input = WebDriverWait(driver, WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, '[data-testid="auth_login_input"]'))
+            )
+            # ------------------------------------------
+
+            login_input.send_keys(config["PROFI"]["LOGIN"])
             self.log_message("➡️ Введен логин.")
 
-            driver.find_element(By.CSS_SELECTOR, '.login-form__input-password') \
-                .send_keys(config["PROFI"]["PASSWORD"])
+            # --- ОЖИДАНИЕ ПОЛЯ ПАРОЛЯ (type="password") ---
+            password_input = WebDriverWait(driver, WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="password"]'))
+            )
+
+            password_input.send_keys(config["PROFI"]["PASSWORD"])
             self.log_message("➡️ Введен пароль.")
 
-            driver.find_element(By.CSS_SELECTOR, '.ui-button').click()
-            self.log_message("➡️ Нажата кнопка 'Войти'.")
-            time.sleep(2)
+            # --- ОЖИДАНИЕ КНОПКИ 'Продолжить' (data-testid) ---
+            login_button = WebDriverWait(driver, WAIT_TIMEOUT).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-testid="enter_with_sms_btn"]'))
+            )
+
+            login_button.click()
+            self.log_message("➡️ Нажата кнопка 'Продолжить'.")
+
+            # --- НОВАЯ ПРОВЕРКА НА СТРАНИЦУ SMS ---
+            try:
+                # Проверяем, появилась ли форма для ввода SMS-кода (обычно имеет поле type="tel")
+                WebDriverWait(driver, 5).until(  # Короткое ожидание, чтобы быстро понять
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="tel"]'))
+                )
+                self.log_message("⚠️ Требуется ввод SMS-кода. Мониторинг остановлен, необходимо ввести код вручную.")
+                return False  # Авторизация не завершена
+            except:
+                # Элемент не найден, значит, либо авторизация успешна, либо ошибка.
+                pass
+            # --------------------------------------
+
+            # Ожидание, пока URL не перестанет содержать "login-form"
+            WebDriverWait(driver, WAIT_TIMEOUT).until_not(
+                EC.url_contains("login-form")
+            )
 
             if "login-form" in driver.current_url:
                 self.log_message("❌ Авторизация не удалась. Проверьте логин/пароль.")
@@ -511,9 +560,17 @@ class ProfiMonitorApp(ctk.CTk):
             message += f"\n{order['description']}\n\n<i>{order['time_info']}</i>"
 
             markup = types.InlineKeyboardMarkup()
+
+            # Кнопка для быстрого отклика
             markup.add(types.InlineKeyboardButton(
-                text="Откликнуться",
+                text="🔥 Откликнуться",
                 url=f"https://profi.ru/backoffice/n.php?o={order['link']}"
+            ))
+
+            # НОВАЯ Кнопка для входа в кабинет
+            markup.add(types.InlineKeyboardButton(
+                text="🔗 Войти в кабинет",
+                url="https://profi.ru/backoffice/n.php"
             ))
 
             bot.send_message(
@@ -550,9 +607,14 @@ class ProfiMonitorApp(ctk.CTk):
                 refresh_time = random.randint(*config["SLEEP"]["PAGE_REFRESH"])
                 self.log_message(f"🔄 Обновляю страницу. Следующее обновление через {refresh_time} сек.")
                 self.driver.refresh()
-                time.sleep(3)
+                # time.sleep(3) - Удалено, чтобы использовать неявное ожидание
 
                 # Получаем HTML
+                # Используем EC.presence_of_element_located для ожидания хотя бы одного заказа
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'a[data-testid$="_order-snippet"]'))
+                )
+
                 soup = BeautifulSoup(self.driver.page_source, 'html.parser')
 
                 containers = soup.find_all(
@@ -587,6 +649,13 @@ class ProfiMonitorApp(ctk.CTk):
 
             except Exception as e:
                 self.log_message(f"❌ Критическая ошибка в цикле мониторинга: {str(e)}")
+                # Если произошла критическая ошибка (например, сессия слетела), пробуем перелогиниться
+                if "session" in str(e).lower() or "timeout" in str(e).lower():
+                    self.log_message(
+                        "🚨 Вероятно, слетела авторизация или истекло время ожидания. Попытка переавторизации.")
+                    if not self.login(self.driver, config):
+                        self.stop_monitoring()
+                        return
                 time.sleep(60)
 
         # Выход из цикла - остановка мониторинга
@@ -600,36 +669,35 @@ class ProfiMonitorApp(ctk.CTk):
     def parse_order(self, container):
         """Парсинг данных из контейнера заказа (тега <a>)"""
         try:
-            # 1. ID Заказа (Link)
-            link = container.get('data-testid', '').split('_')[0]
+            # 1. ID Заказа (Link) - Используем data-testid
+            link_full = container.get('data-testid', '')
+            link = link_full.split('_')[0] if link_full else None
 
-            # 2. Тема (Subject)
+            # 2. Тема (Subject) - Используем h3
             subject_tag = container.find('h3')
             subject = subject_tag.text.strip() if subject_tag else None
 
-            # 3. Описание (Description)
-            description_tag = container.find('div', class_=lambda c: c and 'sc-tnih0-' in c)
-            if not description_tag:
-                description_tag = container.find('p')
+            # 3. Описание (Description) - Используем <p>
+            # Описание часто находится в первом теге <p>
+            description_tag = container.find('p')
             description = description_tag.text.strip() if description_tag else None
 
-            # 4. Цена (Price)
-            price_tag = container.find('span', class_='sc-eOWKyy')
+            # 4. Цена (Price) - Используем атрибут role="status" или h4 (часто для цены)
+            price_tag = container.find(['h4', 'span'], attrs={'role': 'status'})
             if not price_tag:
-                price_tag = container.find('span', class_=lambda c: c and ('PriceValue' in c or 'sc-kCkVJn' in c))
+                # Попытка найти по сгенерированному классу, если не нашли по более надежному
+                price_tag = container.find('span', class_=lambda c: c and ('PriceValue' in c or 'sc-eOWKyy' in c))
 
             price = None
             if price_tag:
                 full_price_text = price_tag.get_text(strip=True, separator=' ')
-                price = ' '.join(full_price_text.split()).replace(' false', '').replace('false', '').strip()
-
+                # Очистка текста: удаляем лишние пробелы и артефакты
+                price = re.sub(r'\s+', ' ', full_price_text).replace(' false', '').replace('false', '').strip()
                 if not price:
                     price = None
 
-            # 5. Время (Time Info)
-            time_tag = container.find('span', class_=lambda c: c and 'Date__' in c)
-            if not time_tag:
-                time_tag = container.find('span', class_=lambda c: c and 'sc-iaHkcm' in c)
+            # 5. Время (Time Info) - Используем тег <span> или <time>
+            time_tag = container.find(['span', 'time'], class_=lambda c: c and ('Date__' in c or 'sc-iaHkcm' in c))
             time_info = time_tag.text.strip() if time_tag else None
 
             if not all([link, subject]):
@@ -675,8 +743,8 @@ class ProfiMonitorApp(ctk.CTk):
         # 2. Фильтрация по часам/минутам
 
         # Регулярное выражение для поиска "N минут/часов назад"
-        # Пример: 15 минут назад, 8 часов назад
-        match = re.search(r'(\d+)\s+(минут|мин|часов|час)', lower_time_info)
+        # Улучшено для учета всех падежей ("час", "часа", "часов", "минут", "минуты", "мин")
+        match = re.search(r'(\d+)\s+(минут|минуты|мин|часов|часа|час)\s+назад', lower_time_info)
 
         if match:
             value = int(match.group(1))
@@ -687,19 +755,15 @@ class ProfiMonitorApp(ctk.CTk):
             elif "мин" in unit:
                 age_in_hours = value / 60.0
             else:
-                return True  # Неопознанный, но содержит числовой/временной формат, пропускаем через фильтр
+                return True
 
             return age_in_hours <= max_hours
 
-        # 3. Если формат "HH:MM" (например, "14:30") - это, вероятно, сегодняшний заказ (несколько часов назад).
-        # Профи.ру обычно использует "N часов/минут назад" для свежих.
-        # Если не смогли определить возраст, но нет явных признаков старости (как в п.1), пропускаем.
+        # 3. Если формат "HH:MM" (например, "14:30") - считаем свежим.
         if re.match(r'\d{1,2}:\d{2}', lower_time_info):
-            # Считаем, что это свежий заказ, если явно не сказано обратное.
-            # Это безопасно, так как старые заказы будут помечены "Вчера", "5 дней назад" и т.д.
             return True
 
-            # 4. Прочие случаи. Если не смогли определить время, пропускаем (лучше пропустить, чем потерять).
+            # 4. Прочие случаи. Если не смогли определить время, но нет явных признаков старости, пропускаем.
         return True
 
     def is_valid_order(self, config, order):
@@ -710,12 +774,12 @@ class ProfiMonitorApp(ctk.CTk):
             self.log_message(f"🚫 Пропущен заказ {order['link']}: уже был отправлен.")
             return False
 
-        # --- НОВАЯ ПРОВЕРКА НА СВЕЖЕСТЬ ---
+        # --- ПРОВЕРКА НА СВЕЖЕСТЬ ---
         if not self.is_recent_order(order["time_info"], config["FILTERS"]["TIME_THRESHOLD_HOURS"]):
             self.log_message(
                 f"🚫 Пропущен заказ {order['link']}: не соответствует порогу по времени ({order['time_info']}).")
             return False
-        # -----------------------------------
+        # -----------------------------
 
         # Проверка на стоп-слова
         all_bad_words = config["FILTERS"]["BAD_WORDS"] + config["FILTERS"]["CUSTOM_BAD_WORDS"]
