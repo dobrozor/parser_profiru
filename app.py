@@ -4,6 +4,8 @@ import time
 import random
 import threading
 from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
@@ -295,7 +297,7 @@ class ProfiMonitorApp(ctk.CTk):
             **link_style
         )
         telegram_link.grid(row=0, column=1, padx=(0, 10))
-        telegram_link.bind("<Button-1>", lambda e: webbrowser.open("https://t.me/pro_parser_profi"))
+        telegram_link.bind("<Button-1>", lambda e: webbrowser.open("https://t.me/talk_dobrozor"))
 
         # Эффекты при наведении
         for link in [github_link, telegram_link]:
@@ -475,8 +477,9 @@ class ProfiMonitorApp(ctk.CTk):
             chrome_options.add_argument("--disable-dev-shm-usage")  # Важно для Linux-систем
 
         try:
-            driver = webdriver.Chrome(options=chrome_options)
-            # --- НОВОЕ: Неявное ожидание для всех find_element ---
+            # Используем Service и ChromeDriverManager для автоматического получения нужной версии ChromeDriver
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
             driver.implicitly_wait(5)
             # ---------------------------------------------------
             self.log_message("✅ WebDriver запущен.")
