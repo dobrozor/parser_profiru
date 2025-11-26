@@ -566,14 +566,8 @@ class ProfiMonitorApp(ctk.CTk):
 
             # Кнопка для быстрого отклика
             markup.add(types.InlineKeyboardButton(
-                text="🔥 Откликнуться",
+                text="Откликнуться",
                 url=f"https://profi.ru/backoffice/n.php?o={order['link']}"
-            ))
-
-            # НОВАЯ Кнопка для входа в кабинет
-            markup.add(types.InlineKeyboardButton(
-                text="🔗 Войти в кабинет",
-                url="https://profi.ru/backoffice/n.php"
             ))
 
             bot.send_message(
@@ -673,49 +667,54 @@ class ProfiMonitorApp(ctk.CTk):
         """Парсинг данных из контейнера заказа (тега <a>)"""
         try:
             # 1. ID Заказа (Link) - Используем data-testid
+            # Полный атрибут: 84433122_order-snippet
             link_full = container.get('data-testid', '')
-            link = link_full.split('_')[0] if link_full else None
+            link = link_full.split('_')[0] if link_full and '_' in link_full else link_full
+            # Дополнительная проверка, если link_full не содержит "_order-snippet"
+            if not link and link_full:
+                link = link_full
 
             # 2. Тема (Subject) - Используем h3
             subject_tag = container.find('h3')
             subject = subject_tag.text.strip() if subject_tag else None
 
             # 3. Описание (Description) - Используем <p>
-            # Описание часто находится в первом теге <p>
-            description_tag = container.find('p')
+            description_tag = container.find('p', class_='sc-boxreD')  # Более точный класс для описания
             description = description_tag.text.strip() if description_tag else None
 
-            # 4. Цена (Price) - Используем атрибут role="status" или h4 (часто для цены)
-            price_tag = container.find(['h4', 'span'], attrs={'role': 'status'})
-            if not price_tag:
-                # Попытка найти по сгенерированному классу, если не нашли по более надежному
-                price_tag = container.find('span', class_=lambda c: c and ('PriceValue' in c or 'sc-eOWKyy' in c))
+            # 4. Цена (Price) - Ищем контейнер цены и собираем текст
+            # Цель: <div class="sc-fQYwxT ljvjnF"><span aria-hidden="true" class="sc-bpvXrZ kMyWzX">...</span></div>
+            price_container = container.find('div', class_=lambda c: c and 'sc-fQYwxT' in c)
+            price = "Цена не указана"
+            if price_container:
+                # Находим все спаны внутри контейнера цены и объединяем их текст
+                price_spans = price_container.find('span', attrs={'aria-hidden': 'true'})
+                if price_spans:
+                    # Используем get_text с разделителем, чтобы объединить "до" и "2000 ₽"
+                    full_price_text = price_spans.get_text(strip=True, separator=' ')
+                    # Очистка текста: удаляем лишние пробелы и артефакты (например, 'false')
+                    price = re.sub(r'\s+', ' ', full_price_text).replace(' false', '').replace('false', '').strip()
+                    if not price:
+                        price = "Цена не указана"
 
-            price = None
-            if price_tag:
-                full_price_text = price_tag.get_text(strip=True, separator=' ')
-                # Очистка текста: удаляем лишние пробелы и артефакты
-                price = re.sub(r'\s+', ' ', full_price_text).replace(' false', '').replace('false', '').strip()
-                if not price:
-                    price = None
-
-            # 5. Время (Time Info) - Используем тег <span> или <time>
-            time_tag = container.find(['span', 'time'], class_=lambda c: c and ('Date__' in c or 'sc-iaHkcm' in c))
-            time_info = time_tag.text.strip() if time_tag else None
+            # 5. Время (Time Info) - Ищем конкретный span в конце блока
+            # Цель: <span class="sc-hOznEx ctyogv">2 часа назад</span>
+            # Ищем span внутри <div class="sc-dJcftW jyyhkw">
+            time_div = container.find('div', class_=lambda c: c and 'sc-dJcftW' in c)
+            time_info = "Время не указано"
+            if time_div:
+                time_span = time_div.find('span')
+                if time_span:
+                    time_info = time_span.text.strip()
 
             if not all([link, subject]):
                 self.log_message(f"⚠️ Пропущен заказ: не найден Link ({link}) или Subject ({subject}).")
                 return None
 
-            # Устанавливаем значения по умолчанию
-            if not description: description = "Описание не найдено."
-            if not price: price = "Цена не указана"
-            if not time_info: time_info = "Время не указано"
-
             return {
                 "link": link,
                 "subject": subject,
-                "description": description,
+                "description": description if description else "Описание не найдено.",
                 "price": price,
                 "time_info": time_info
             }
