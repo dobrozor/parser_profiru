@@ -629,8 +629,7 @@ class ProfiMonitorApp(ctk.CTk):
             bot = telebot.TeleBot(config["TELEGRAM"]["TOKEN"])
 
             # Обновленный формат сообщения
-            message = f"<b>🆕 Новый заказ (ID: {order['id']})</b>\n\n"
-            message += f"<b>{order['subject']}</b>\n"
+            message = f"<b>{order['subject']}</b>\n"
 
             if order['price'] and order['price'] != "Цена не указана":
                 message += f"<b>{order['price']}</b>\n"
