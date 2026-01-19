@@ -511,6 +511,10 @@ class ProfiMonitorApp(ctk.CTk):
         self.log_message(f"🌐 Инициализация браузера. Режим отладки: {'ВКЛ' if debug_mode else 'ВЫКЛ'}")
         chrome_options = Options()
 
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--remote-debugging-port=9222")  # Помогает при ошибке DevTools
+
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 
@@ -522,9 +526,7 @@ class ProfiMonitorApp(ctk.CTk):
 
         if not debug_mode:
             chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--disable-dev-shm-usage")
 
         try:
             service = Service(ChromeDriverManager().install())
