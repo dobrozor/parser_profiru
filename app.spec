@@ -1,16 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files
 
+datas = collect_data_files('customtkinter')
+# Для Playwright часто требуется collect_all, чтобы подтянуть драйверы браузеров
+from PyInstaller.utils.hooks import collect_all
+tmp_ret = collect_all('playwright')
+datas += tmp_ret[0]; binaries = tmp_ret[1]; hiddenimports = tmp_ret[2]
 
 a = Analysis(
     ['app.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['selenium'], # Явно исключаем селениум
     noarchive=False,
     optimize=0,
 )
@@ -26,10 +32,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
+    upx=False,              # <--- ВАЖНО: Отключаем сжатие UPX, чтобы антивирус не блокировал менеджер драйверов
+    upx_exclude=['selenium-manager.exe'], # На всякий случай дублируем исключение для бинарника
+    console=False,          # GUI режим без всплывающего окна cmd
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
